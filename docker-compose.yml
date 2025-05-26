@@ -2,8 +2,8 @@ version: '3.8'
 
 services:
   zookeeper-1:
-    container_name: zookeeper-1
     image: confluentinc/cp-zookeeper:7.8.0
+    container_name: zookeeper-1
     ports:
       - "2181:2181"
     environment:
@@ -14,8 +14,8 @@ services:
       - kafka-network
 
   zookeeper-2:
-    container_name: zookeeper-2
     image: confluentinc/cp-zookeeper:7.8.0
+    container_name: zookeeper-2
     ports:
       - "2182:2181"
     environment:
@@ -26,29 +26,28 @@ services:
       - kafka-network
 
   zookeeper-3:
-    container_name: zookeeper-3
     image: confluentinc/cp-zookeeper:7.8.0
+    container_name: zookeeper-3
     ports:
       - "2183:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_SERVER_ID: 3
-      ZOOKEEPER_SERVERS: zookeeper-1:2888:3888;zoozookeeper-2:2888:3888;zookeeper-3:2888:3888
+      ZOOKEEPER_SERVERS: zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888
     networks:
       - kafka-network
 
   kafka-1:
-    container_name: kafka-1
     image: confluentinc/cp-kafka:7.8.0
+    container_name: kafka-1
     ports:
       - "9092:9092"
-      - "29092:29092"
     environment:
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:19092,EXTERNAL://${DOCKER_HOST_IP:-host.docker.internal}:9092,DOCKER://host.docker.internal:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,DOCKER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2182,zookeeper-3:2183"
       KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2182,zookeeper-3:2183"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
     depends_on:
       - zookeeper-1
       - zookeeper-2
@@ -57,17 +56,16 @@ services:
       - kafka-network
 
   kafka-2:
-    container_name: kafka-2
     image: confluentinc/cp-kafka:7.8.0
+    container_name: kafka-2
     ports:
       - "9093:9093"
-      - "29093:29093"
     environment:
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:19093,EXTERNAL://${DOCKER_HOST_IP:-host.docker.internal}:9093,DOCKER://host.docker.internal:29093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,DOCKER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2182,zookeeper-3:2183"
       KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2182,zookeeper-3:2183"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
     depends_on:
       - zookeeper-1
       - zookeeper-2
@@ -76,23 +74,53 @@ services:
       - kafka-network
 
   kafka-3:
-    container_name: kafka-3
     image: confluentinc/cp-kafka:7.8.0
+    container_name: kafka-3
     ports:
       - "9094:9094"
-      - "29094:29094"
     environment:
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:19094,EXTERNAL://${DOCKER_HOST_IP:-host.docker.internal}:9094,DOCKER://host.docker.internal:29094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,DOCKER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2182,zookeeper-3:2183"
       KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2182,zookeeper-3:2183"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9094
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
     depends_on:
       - zookeeper-1
       - zookeeper-2
       - zookeeper-3
     networks:
       - kafka-network
+
+  kafka-producer:
+    build:
+      context: .
+    container_name: kafka-producer
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    command: ["python", "kafka_producer.py"]
+    volumes:
+      - .:/app
+    networks:
+      - kafka-network
+
+  kafka-consumer:
+    build:
+      context: .
+    container_name: kafka-consumer
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    command: ["python", "kafka_consumer.py"]
+    volumes:
+      - .:/app
+      - ./messages:/app/messages 
+    networks:
+      - kafka-network
+
 networks:
   kafka-network:
     driver: bridge
+
