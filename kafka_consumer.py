@@ -1,52 +1,52 @@
-import os
-import csv
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
 import time
-from confluent_kafka import Consumer, KafkaError
+import os
 
-def get_next_filename(messages_dir):
-    if not os.path.exists(messages_dir):
-        os.makedirs(messages_dir)
-    existing_files = [f for f in os.listdir(messages_dir) if f.startswith("file_") and f.endswith(".csv")]
-    next_index = len(existing_files) + 1
-    return os.path.join(messages_dir, f"file_{next_index}.csv")
+# Global batch counter
+batch_id_accumulator = {"count": 0}
 
-def consume_messages(batch_size, bootstrap_servers, topic_name, output_dir):
-    consumer = Consumer({
-        'bootstrap.servers': bootstrap_servers,
-        'group.id': 'my-group',
-        'auto.offset.reset': 'earliest'
-    })
-    consumer.subscribe([topic_name])
-    messages = []
+def custom_write_to_csv(batch_df, batch_id):
+    # Increment batch counter
+    batch_id_accumulator["count"] += 1
+    file_name = f"file_{batch_id_accumulator['count']}.csv"
+    output_path = os.path.join(output_dir, file_name)
 
-    filename = get_next_filename(output_dir)
-    print(f"Saving consumed messages to: {filename}")
+    # Write DataFrame to single CSV file (you can repartition to 1 if needed)
+    batch_df.coalesce(1).write.mode("overwrite").option("header", True).csv(output_path)
 
-    with open(filename, 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['message'])
+def start_spark_streaming_app(bootstrap_servers, topic_name, output_dir_path):
+    global output_dir
+    output_dir = output_dir_path  # So custom_write_to_csv can access it
 
-        while len(messages) < batch_size:
-            msg = consumer.poll(1.0)
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    continue
-                else:
-                    print(f"Error: {msg.error()}")
-                    break
-            message_value = msg.value().decode('utf-8')
-            writer.writerow([message_value])
-            messages.append(message_value)
-            print(f"Consumed: {message_value}")
+    spark = SparkSession.builder \
+        .appName("KafkaToCSVStreaming") \
+        .getOrCreate()
 
-    consumer.close()
+    spark.sparkContext.setLogLevel("WARN")
+
+    kafka_df = spark.readStream \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", bootstrap_servers) \
+        .option("subscribe", topic_name) \
+        .option("startingOffsets", "earliest") \
+        .load()
+
+    messages_df = kafka_df.selectExpr("CAST(value AS STRING) as message")
+
+    query = messages_df.writeStream \
+        .foreachBatch(custom_write_to_csv) \
+        .outputMode("append") \
+        .trigger(processingTime="10 seconds") \
+        .option("checkpointLocation", output_dir + "_checkpoint") \
+        .start()
+
+    query.awaitTermination()
 
 if __name__ == "__main__":
-    bootstrap_servers = 'kafka-1:9092,kafka-2:9093,kafka-3:9094'
-    topic_name = 'second_test'
-    output_dir = './messages'
+    bootstrap_servers = "kafka-1:9092,kafka-2:9093,kafka-3:9094"
+    topic_name = "second_test"
+    output_dir = "./messages"
 
-    time.sleep(5)  # Optional safety delay
-    consume_messages(1000, bootstrap_servers, topic_name, output_dir)
+    time.sleep(5)
+    start_spark_streaming_app(bootstrap_servers, topic_name, output_dir)

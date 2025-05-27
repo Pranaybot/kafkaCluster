@@ -113,7 +113,7 @@ services:
       - kafka-1
       - kafka-2
       - kafka-3
-    command: ["python", "kafka_consumer.py"]
+    command: ["spark-submit", "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0", "kafka_consumer.py"]
     volumes:
       - .:/app
       - ./messages:/app/messages 
